@@ -1,0 +1,7 @@
+version: '3.5'
+
+services:
+  api-web:
+    build: .
+    ports:
+      - 8000:8000
