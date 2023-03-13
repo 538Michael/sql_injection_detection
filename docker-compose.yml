@@ -5,3 +5,13 @@ services:
     build: .
     ports:
       - 8000:8000
+  api-db:
+    image: postgres:15.2
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: sql_injection_detection
+    ports:
+      - '5433:5432'
+    volumes:
+      - api-database:/var/lib/postgresql/data/

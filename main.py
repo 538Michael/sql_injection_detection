@@ -1,49 +1,205 @@
 import re
 
-from fastapi import FastAPI
+import psycopg2
+import uvicorn
+from fastapi import FastAPI, HTTPException
 
 app = FastAPI()
 
 regexes_to_test = [
-    r"(?:')|(?:--)|(?:#)",
-    """
-    '(single quote) used to terminate a SQL statement and inject malicious code
-    -- used to comment out the rest of a SQL statement and inject malicious code
-    # used to comment out the rest of a SQL statement and inject malicious code
-    """
-    r"\b(ALTER|CREATE|DELETE|DROP|EXEC(UTE){0,1}|INSERT( +INTO){0,1}|SELECT|UNION( +ALL){0,1}|UPDATE)\b",
-    """
-    This regex pattern matches common SQL keywords such as ALTER, CREATE, DELETE, DROP, EXEC, INSERT, SELECT, UNION, and UPDATE.
-    """,
-    r"\b\d+('|;\s*|--\s*|#\s*)",
-    """
-    This regex pattern matches numeric values followed by a single quote, semicolon, or comment characters used in SQL injection attacks.
-    """,
-    r"(?i)\b(TRUE|FALSE|NULL|NOT)\b|[-+]*(\d|\.\d+|0x[0-9a-f]+)",
-    """
-    This regex pattern matches boolean values and numeric values used in SQL injection attacks.
-    """,
-    r"(?i)(?:(?:\d+[xX][0-9a-fA-F]+)|(?:'[\w\s]*')|(?:\"[\w\s]*\")|(?:;[^\w;]*?\b(?:SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE)\b[^\w;]*?(?:FROM|\bINTO\b)))",
-    """
-    This regex pattern matches tautologies, which are statements that always evaluate to true, and commonly used in SQL injection attacks. Examples of tautologies include 1=1, ' OR 1=1 --, 1' OR '1'='1, and ''''; SELECT * FROM users--.
-    """,
-    r"(?i)\bUNION\s+ALL\s+SELECT\b",
-    """
-    This regex pattern matches the UNION ALL SELECT statement, which is commonly used in SQL injection attacks to retrieve data from other tables.
-    """,
-    r"(?i)\b(?:RAISERROR|THROW)\b",
-    """
-    This regex pattern matches error-inducing SQL statements such as RAISERROR and THROW, which are commonly used in SQL injection attacks to force the database server to reveal sensitive information.
-    """,
+    r"(\%27)|(\')|(--[^\r\n]*)|(;%00)",
+    r"((\%3D)|(=))[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(;))",
+    r"((\%27)|(\'))((\%6F)|o|(\%4F))((\%72)|r|(\%52))",
+    r"(\W)(and|or)\s*\d+\s*(=|\>\=|\<\=|\>\\<|\<|\>)",
+    r"((\%27)|(\'))UNION",
+    r"([\s\(\)])(select|drop|insert|delete|update|create|alter)([\s\(\)])",
+    r"([\s\(\)])(exec|execute)([\s\(\)])",
+    r"(\%20and|\+and|&&|\&\&)",
 ]
+
+
+def check_if_database_exists():
+
+    # Establish a connection to the PostgreSQL server
+    try:
+        connection = psycopg2.connect(
+            host="localhost",
+            user="postgres",
+            password="postgres",
+            database="sql_injection_detection",
+        )
+
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database connection error: {e}")
+
+    # Create a new database if it doesn't already exist
+    cursor = connection.cursor()
+
+    cursor.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS regular_expressions (
+            id SERIAL PRIMARY KEY,
+            description VARCHAR(255) NOT NULL,
+            captured_injections INTEGER NOT NULL DEFAULT 0
+        )
+    """
+    )
+
+    connection.commit()
+
+    return connection
+
+
+def get_connection():
+    return check_if_database_exists()
+
+
+# Create a function to get all rows from the database table
+def get_all_regular_expressions():
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM regular_expressions")
+        rows = cur.fetchall()
+        rows_dict = []
+        for row in rows:
+            row_dict = {
+                "id": row[0],
+                "description": row[1],
+                "captured_injections": row[2],
+            }
+            rows_dict.append(row_dict)
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        cur.close()
+        conn.close()
+    return rows_dict
+
+
+# Create a function to get a single row from the database table by id
+def get_regular_expression_by_id(regular_expression_id: int):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM regular_expressions WHERE id = %s", [regular_expression_id]
+        )
+        row = cur.fetchone()
+        row = {
+            "id": row[0],
+            "description": row[1],
+            "captured_injections": row[2],
+        }
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        cur.close()
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Regular expression not found")
+    return row
+
+
+# Create a function to create a new row in the database table
+def create_regular_expression(regular_expression):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO regular_expressions (description) VALUES (%s) RETURNING id",
+            [regular_expression],
+        )
+        regular_expression_id = cur.fetchone()[0]
+        conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        cur.close()
+        conn.close()
+    return regular_expression_id
+
+
+# Create a function to update an existing row in the database table
+def update_regular_expression(regular_expression_id, regular_expression):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE regular_expressions SET description = %s WHERE id = %s",
+            [regular_expression, regular_expression_id],
+        )
+        conn.commit()
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+# Create a function to delete a row from the database table by id
+def delete_regular_expression(regular_expression_id):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM regular_expressions WHERE id = %s", [regular_expression_id]
+        )
+        conn.commit()
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+# Define endpoints for the web API
+@app.get("/regular_expressions")
+async def get_regular_expressions():
+    return get_all_regular_expressions()
+
+
+@app.get("/regular_expressions/{regular_expression_id}")
+async def get_regular_expression(regular_expression_id: int):
+    row = get_regular_expression_by_id(regular_expression_id)
+    return row
+
+
+@app.post("/regular_expressions")
+async def create_new_regular_expression(regular_expression: str):
+    regular_expression_id = create_regular_expression(regular_expression)
+    return {"id": regular_expression_id}
+
+
+@app.put("/regular_expressions/{regular_expression_id}")
+async def update_existing_regular_expression(
+    regular_expression_id: int, regular_expression: str
+):
+    get_regular_expression_by_id(regular_expression_id)
+    update_regular_expression(regular_expression_id, regular_expression)
+    return {"message": "Regular_expression updated successfully"}
+
+
+@app.delete("/regular_expressions/{regular_expression_id}")
+async def delete_existing_regular_expression(regular_expression_id: int):
+    get_regular_expression_by_id(regular_expression_id)
+    delete_regular_expression(regular_expression_id)
+    return {"message": "Regular expression deleted successfully"}
 
 
 @app.get("/sql_injection_detection")
 def sql_injection_detection(string: str):
-    for expression in regexes_to_test:
-        regex = re.search(expression, string, re.IGNORECASE)
+
+    regular_expressions = get_all_regular_expressions()
+
+    for expression in regular_expressions:
+        regex = re.search(expression.get("description"), string, re.IGNORECASE)
 
         if regex:
             return {"message": "sql_injection_detected"}
 
     return {"message": "sql_injection_not_detected"}
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
