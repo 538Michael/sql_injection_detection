@@ -1,5 +1,9 @@
+import csv
 import re
+from time import perf_counter
 
+import matplotlib.pyplot as plt
+import numpy as np
 import psycopg2
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -41,6 +45,16 @@ def check_if_database_exists():
             id SERIAL PRIMARY KEY,
             description VARCHAR(255) NOT NULL,
             captured_injections INTEGER NOT NULL DEFAULT 0
+        )
+    """
+    )
+
+    cursor.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS detected_injections (
+            id SERIAL PRIMARY KEY,
+            description TEXT UNIQUE NOT NULL,
+            detected_times INTEGER NOT NULL DEFAULT 0
         )
     """
     )
@@ -156,6 +170,32 @@ def delete_regular_expression(regular_expression_id):
 # Define endpoints for the web API
 @app.get("/regular_expressions")
 async def get_regular_expressions():
+
+    # Load the matrix from file
+    matrix = np.loadtxt("output2.txt")
+
+    # Generate random data
+    data = matrix.astype(float).transpose()
+
+    print(data)
+
+    # Calculate standard deviation
+    std = np.std(data, axis=1)
+
+    # Plot the graph
+    plt.errorbar(range(1, 9), np.mean(data, axis=1), yerr=std, fmt="o", capsize=5)
+
+    # Set the axis labels
+    plt.xlabel("Regular Expression")
+    plt.ylabel("time (ms)")
+
+    # Set the title
+    plt.title(
+        f"Plot with 8 regular expressions, {len(data[0])} samples, and standard deviation"
+    )
+
+    # Show the plot
+    plt.show()
     return get_all_regular_expressions()
 
 
@@ -190,16 +230,64 @@ async def delete_existing_regular_expression(regular_expression_id: int):
 @app.get("/sql_injection_detection")
 def sql_injection_detection(string: str):
 
-    regular_expressions = get_all_regular_expressions()
+    count = -1
 
-    for expression in regular_expressions:
-        regex = re.search(expression.get("description"), string, re.IGNORECASE)
+    elapsed_time = [[] for _ in range(8)]
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
 
-        if regex:
-            return {"message": "sql_injection_detected"}
+        with open("SQLiV3.csv") as csvfile:
+            reader = csv.reader(csvfile)
+
+            for row in reader:
+                count = count + 1
+                if count == 1000:
+                    break
+                print(count)
+
+                regular_expressions = get_all_regular_expressions()
+                count2 = -1
+                for expression in regular_expressions:
+
+                    start_time = perf_counter()
+                    get_all_regular_expressions()
+
+                    count2 = count2 + 1
+
+                    regex = re.search(
+                        expression.get("description"), row[0], re.IGNORECASE
+                    )
+
+                    end_time = perf_counter()
+                    elapsed_time_ms = (end_time - start_time) * 1000
+                    elapsed_time[count2].append(elapsed_time_ms)
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    # elapsed_time = [sum(inner_list) / len(inner_list) for inner_list in elapsed_time]
+
+    A = np.array(elapsed_time)
+    A_inv = np.transpose(A)
+
+    with open("output2.txt", "w") as f:
+        # Loop over the data and write it to the file
+        """for i in range(1, len(elapsed_time) + 1):
+            if i != 1:
+                f.write(" ")
+            f.write("{}".format(i))
+        f.write("\n")"""
+        for i in A_inv:
+            for j in i:
+                f.write("{} ".format(j))
+            f.write("\n")
 
     return {"message": "sql_injection_not_detected"}
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="localhost", port=8000, log_level="debug", reload=True)
