@@ -27,7 +27,7 @@ def check_if_database_exists():
     # Establish a connection to the PostgreSQL server
     try:
         connection = psycopg2.connect(
-            host="localhost",
+            host="api-db",
             user="postgres",
             password="postgres",
             database="sql_injection_detection",
@@ -35,31 +35,6 @@ def check_if_database_exists():
 
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"Database connection error: {e}")
-
-    # Create a new database if it doesn't already exist
-    cursor = connection.cursor()
-
-    cursor.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS regular_expressions (
-            id SERIAL PRIMARY KEY,
-            description VARCHAR(255) NOT NULL,
-            captured_injections INTEGER NOT NULL DEFAULT 0
-        )
-    """
-    )
-
-    cursor.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS detected_injections (
-            id SERIAL PRIMARY KEY,
-            description TEXT UNIQUE NOT NULL,
-            detected_times INTEGER NOT NULL DEFAULT 0
-        )
-    """
-    )
-
-    connection.commit()
 
     return connection
 
@@ -170,32 +145,6 @@ def delete_regular_expression(regular_expression_id):
 # Define endpoints for the web API
 @app.get("/regular_expressions")
 async def get_regular_expressions():
-
-    # Load the matrix from file
-    matrix = np.loadtxt("output2.txt")
-
-    # Generate random data
-    data = matrix.astype(float).transpose()
-
-    print(data)
-
-    # Calculate standard deviation
-    std = np.std(data, axis=1)
-
-    # Plot the graph
-    plt.errorbar(range(1, 9), np.mean(data, axis=1), yerr=std, fmt="o", capsize=5)
-
-    # Set the axis labels
-    plt.xlabel("Regular Expression")
-    plt.ylabel("time (ms)")
-
-    # Set the title
-    plt.title(
-        f"Plot with 8 regular expressions, {len(data[0])} samples, and standard deviation"
-    )
-
-    # Show the plot
-    plt.show()
     return get_all_regular_expressions()
 
 
@@ -227,9 +176,67 @@ async def delete_existing_regular_expression(regular_expression_id: int):
     return {"message": "Regular expression deleted successfully"}
 
 
-@app.get("/sql_injection_detection")
-def sql_injection_detection(string: str):
+@app.post("/generate_graph")
+def generate_graph():
+    # Load the matrix from file
+    matrix = np.loadtxt("data/output_without_crud.txt")
 
+    # Generate random data
+    data = matrix.astype(float).transpose()
+
+    print(data)
+
+    # Calculate standard deviation
+    std = np.std(data, axis=1)
+
+    # Plot the graph
+    plt.errorbar(range(1, 9), np.mean(data, axis=1), yerr=std, fmt="o", capsize=5)
+
+    # Set the axis labels
+    plt.xlabel("Regular Expression")
+    plt.ylabel("time (ms)")
+
+    # Set the title
+    plt.title(
+        f"Plot with 8 regular expressions, {len(data[0])} samples, and standard deviation"
+    )
+
+    # Show the plot
+    plt.savefig("data/sample_plot_without_crud.png")
+
+    plt.clf()
+
+    # Load the matrix from file
+    matrix = np.loadtxt("data/output_with_crud.txt")
+
+    # Generate random data
+    data = matrix.astype(float).transpose()
+
+    print(data)
+
+    # Calculate standard deviation
+    std = np.std(data, axis=1)
+
+    # Plot the graph
+    plt.errorbar(range(1, 9), np.mean(data, axis=1), yerr=std, fmt="o", capsize=5)
+
+    # Set the axis labels
+    plt.xlabel("Regular Expression")
+    plt.ylabel("time (ms)")
+
+    # Set the title
+    plt.title(
+        f"Plot with 8 regular expressions, {len(data[0])} samples, and standard deviation"
+    )
+
+    # Show the plot
+    plt.savefig("data/sample_plot_with_crud.png")
+
+    return {"message": "graph_generated"}
+
+
+@app.post("/generate_data/with_crud")
+def generate_data():
     count = -1
 
     elapsed_time = [[] for _ in range(8)]
@@ -242,7 +249,7 @@ def sql_injection_detection(string: str):
 
             for row in reader:
                 count = count + 1
-                if count == 1000:
+                if count == 10000:
                     break
                 print(count)
 
@@ -274,7 +281,7 @@ def sql_injection_detection(string: str):
     A = np.array(elapsed_time)
     A_inv = np.transpose(A)
 
-    with open("output2.txt", "w") as f:
+    with open("data/output_with_crud.txt", "w") as f:
         # Loop over the data and write it to the file
         """for i in range(1, len(elapsed_time) + 1):
             if i != 1:
@@ -285,9 +292,78 @@ def sql_injection_detection(string: str):
             for j in i:
                 f.write("{} ".format(j))
             f.write("\n")
+    return {"message": "data_generated"}
+
+
+@app.post("/generate_data/without_crud")
+def generate_data():
+    count = -1
+
+    elapsed_time = [[] for _ in range(8)]
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+
+        with open("SQLiV3.csv") as csvfile:
+            reader = csv.reader(csvfile)
+
+            for row in reader:
+                count = count + 1
+                if count == 10000:
+                    break
+                print(count)
+
+                regular_expressions = get_all_regular_expressions()
+                count2 = -1
+                for expression in regular_expressions:
+
+                    start_time = perf_counter()
+
+                    count2 = count2 + 1
+
+                    regex = re.search(
+                        expression.get("description"), row[0], re.IGNORECASE
+                    )
+
+                    end_time = perf_counter()
+                    elapsed_time_ms = (end_time - start_time) * 1000
+                    elapsed_time[count2].append(elapsed_time_ms)
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+    # elapsed_time = [sum(inner_list) / len(inner_list) for inner_list in elapsed_time]
+
+    A = np.array(elapsed_time)
+    A_inv = np.transpose(A)
+
+    with open("data/output_without_crud.txt", "w") as f:
+        # Loop over the data and write it to the file
+        """for i in range(1, len(elapsed_time) + 1):
+            if i != 1:
+                f.write(" ")
+            f.write("{}".format(i))
+        f.write("\n")"""
+        for i in A_inv:
+            for j in i:
+                f.write("{} ".format(j))
+            f.write("\n")
+    return {"message": "data_generated"}
+
+
+@app.get("/sql_injection_detection")
+def sql_injection_detection(string: str):
+
+    for expression in regexes_to_test:
+        regex = re.search(expression, string, re.IGNORECASE)
+
+        if regex:
+            return {"message": "sql_injection_detected"}
 
     return {"message": "sql_injection_not_detected"}
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="localhost", port=8000, log_level="debug", reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, log_level="debug", reload=True)
