@@ -1,17 +1,27 @@
-version: '3.5'
+version: '3.3'
 
 services:
   api-web:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - 8000:8000
+      - "8000:8000"
+    depends_on:
+      - api-db
+    volumes:
+      - ./data:/app/data
+    command: bash -c "python main.py"
   api-db:
-    image: postgres:15.2
+    image: postgres:14.7-alpine
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
       POSTGRES_DB: sql_injection_detection
     ports:
-      - '5433:5432'
+      - "5433:5432"
     volumes:
-      - api-database:/var/lib/postgresql/data/
+      - db-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+volumes:
+  db-data:

@@ -6,24 +6,13 @@ from fastapi import FastAPI, HTTPException
 
 app = FastAPI()
 
-regexes_to_test = [
-    r"(\%27)|(\')|(--[^\r\n]*)|(;%00)",
-    r"((\%3D)|(=))[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(;))",
-    r"((\%27)|(\'))((\%6F)|o|(\%4F))((\%72)|r|(\%52))",
-    r"(\W)(and|or)\s*\d+\s*(=|\>\=|\<\=|\>\\<|\<|\>)",
-    r"((\%27)|(\'))UNION",
-    r"([\s\(\)])(select|drop|insert|delete|update|create|alter)([\s\(\)])",
-    r"([\s\(\)])(exec|execute)([\s\(\)])",
-    r"(\%20and|\+and|&&|\&\&)",
-]
-
 
 def check_if_database_exists():
 
     # Establish a connection to the PostgreSQL server
     try:
         connection = psycopg2.connect(
-            host="localhost",
+            host="api-db",
             user="postgres",
             password="postgres",
             database="sql_injection_detection",
@@ -31,21 +20,6 @@ def check_if_database_exists():
 
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"Database connection error: {e}")
-
-    # Create a new database if it doesn't already exist
-    cursor = connection.cursor()
-
-    cursor.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS regular_expressions (
-            id SERIAL PRIMARY KEY,
-            description VARCHAR(255) NOT NULL,
-            captured_injections INTEGER NOT NULL DEFAULT 0
-        )
-    """
-    )
-
-    connection.commit()
 
     return connection
 
@@ -59,15 +33,11 @@ def get_all_regular_expressions():
     try:
         conn = get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM regular_expressions")
+        cur.execute("SELECT * FROM regular_expressions ORDER BY id")
         rows = cur.fetchall()
         rows_dict = []
         for row in rows:
-            row_dict = {
-                "id": row[0],
-                "description": row[1],
-                "captured_injections": row[2],
-            }
+            row_dict = {"id": row[0], "description": row[1]}
             rows_dict.append(row_dict)
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
@@ -83,14 +53,11 @@ def get_regular_expression_by_id(regular_expression_id: int):
         conn = get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM regular_expressions WHERE id = %s", [regular_expression_id]
+            "SELECT * FROM regular_expressions WHERE id = %s ORDER BY id",
+            [regular_expression_id],
         )
         row = cur.fetchone()
-        row = {
-            "id": row[0],
-            "description": row[1],
-            "captured_injections": row[2],
-        }
+        row = {"id": row[0], "description": row[1]}
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
     finally:
