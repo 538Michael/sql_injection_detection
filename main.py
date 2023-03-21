@@ -353,6 +353,52 @@ def generate_data():
     return {"message": "data_generated"}
 
 
+@app.get("/elapsed_time/select_query")
+def elapsed_time_select_query():
+
+    elapsed_time = [[] for _ in range(6)]
+    ranges_to_test = [1, 5, 10, 20, 50, 100]
+
+    for i, value in enumerate(ranges_to_test):
+        print(value)
+        for j in range(10000):
+            try:
+                conn = get_connection()
+                cur = conn.cursor()
+                start_time = perf_counter()
+                cur.execute(
+                    f"SELECT * FROM regular_expressions ORDER BY id LIMIT {value}"
+                )
+                rows = cur.fetchall()
+                """rows_dict = []
+                for row in rows:
+                    row_dict = {
+                        "id": row[0],
+                        "description": row[1],
+                        "captured_injections": row[2],
+                    }
+                    rows_dict.append(row_dict)"""
+            except psycopg2.Error as e:
+                raise HTTPException(status_code=500, detail=f"Database error: {e}")
+            finally:
+                cur.close()
+                conn.close()
+                end_time = perf_counter()
+                elapsed_time_ms = (end_time - start_time) * 1000
+                elapsed_time[i].append(elapsed_time_ms)
+
+    A = np.array(elapsed_time)
+    A_inv = np.transpose(A)
+
+    with open("data/elapsed_time.txt", "w") as f:
+        for i in A_inv:
+            for j in i:
+                f.write("{} ".format(j))
+            f.write("\n")
+
+    return {"message": "data_generated"}
+
+
 @app.get("/sql_injection_detection")
 def sql_injection_detection(string: str):
 
