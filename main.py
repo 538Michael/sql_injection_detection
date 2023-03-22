@@ -14,9 +14,9 @@ regexes_to_test = [
     r"(\%27)|(\')|(--[^\r\n]*)|(;%00)",
     r"((\%3D)|(=))[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(;))",
     r"((\%27)|(\'))((\%6F)|o|(\%4F))((\%72)|r|(\%52))",
-    r"(\W)(and|or)\s*\d+\s*(=|\>\=|\<\=|\>\\<|\<|\>)",
+    r"(\W)(and|or)\s*",
     r"((\%27)|(\'))UNION",
-    r"([\s\(\)])(select|drop|insert|delete|update|create|alter)([\s\(\)])",
+    r"(select|drop|insert|delete|update|create|alter)([\s\(\)])",
     r"([\s\(\)])(exec|execute)([\s\(\)])",
     r"(\%20and|\+and|&&|\&\&)",
 ]
@@ -27,7 +27,7 @@ def check_if_database_exists():
     # Establish a connection to the PostgreSQL server
     try:
         connection = psycopg2.connect(
-            host="api-db",
+            host="localhost",
             user="postgres",
             password="postgres",
             database="sql_injection_detection",
@@ -295,62 +295,126 @@ def generate_data():
     return {"message": "data_generated"}
 
 
+def accuracy_function(tp, tn, fp, fn):
+
+    accuracy = (tp + tn) / (tp + tn + fp + fn)
+
+    return accuracy
+
+
+def precision_function(tp, fp):
+
+    precision = tp / (tp + fp)
+
+    return precision
+
+
+def recall_function(tp, fn):
+
+    recall = tp / (tp + fn)
+
+    return recall
+
+
 @app.post("/generate_data/without_crud")
 def generate_data():
-    count = -1
 
-    elapsed_time = [[] for _ in range(8)]
+    not_captured = []
+    true_positive = 0
+    false_positive = 0
+    true_negative = 0
+    false_negative = 0
+
+    count_injection = 0
+    count_not_injection = 0
+
+    list_of_false_negative = []
+
     try:
         conn = get_connection()
         cur = conn.cursor()
 
-        with open("SQLiV3.csv") as csvfile:
-            reader = csv.reader(csvfile)
+        regular_expressions = get_all_regular_expressions()
 
+        with open("SQLiV3.csv", "r") as csvfile:
+            reader = csv.reader(csvfile, delimiter="\n")
+            next(reader)
+
+            reader2 = []
             for row in reader:
-                count = count + 1
-                if count == 10000:
-                    break
-                print(count)
+                row = row[0].split(",")
+                if len(row) >= 2:
+                    if len(row[0]) > 0:
+                        if row[len(row) - 3] == "0" or row[len(row) - 3] == "1":
+                            row[1] = row[len(row) - 3]
+                            reader2.append(row)
+                        elif row[len(row) - 2] == "0" or row[len(row) - 2] == "1":
+                            row[1] = row[len(row) - 2]
+                            reader2.append(row)
+                    else:
+                        del row[0]
+                        row[1] = row[len(row) - 2]
+                        reader2.append(row)
+                else:
+                    print(row)
 
-                regular_expressions = get_all_regular_expressions()
-                count2 = -1
-                for expression in regular_expressions:
+            for row in reader2:
+                if row[1] == "1":
+                    count_injection += 1
+                else:
+                    count_not_injection += 1
+                is_injection = False
+                for expression in regexes_to_test:
 
-                    start_time = perf_counter()
+                    regex = re.search(expression, row[0], re.IGNORECASE)
 
-                    count2 = count2 + 1
+                    if regex:
+                        if row[1] == "1":
+                            true_positive += 1
+                        else:
+                            false_positive += 1
+                        is_injection = True
+                        break
+                if not is_injection:
+                    if row[1] == "0":
+                        true_negative += 1
+                    else:
+                        false_negative += 1
+                        list_of_false_negative.append((row[0], row[1], expression))
 
-                    regex = re.search(
-                        expression.get("description"), row[0], re.IGNORECASE
-                    )
-
-                    end_time = perf_counter()
-                    elapsed_time_ms = (end_time - start_time) * 1000
-                    elapsed_time[count2].append(elapsed_time_ms)
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    except IndexError as e:
+        raise HTTPException(status_code=500, detail=f"Index error: {e}")
     finally:
         cur.close()
         conn.close()
 
-    # elapsed_time = [sum(inner_list) / len(inner_list) for inner_list in elapsed_time]
+    accuracy = accuracy_function(
+        true_positive, true_negative, false_positive, false_negative
+    )
+    precision = precision_function(true_positive, false_positive)
+    recall = recall_function(true_positive, false_negative)
 
-    A = np.array(elapsed_time)
-    A_inv = np.transpose(A)
+    with open("data/not_captured.txt", "w") as f:
+        for i in not_captured:
+            f.write(f"{i}\n")
+    with open("data/list_of_list_of_false_negatives.txt", "w") as f:
+        for i in list_of_false_negative:
+            f.write(f"{i[2]}\t\t\t\t\t\t\t\t\t\t{i[1]}\t\t {i[0]}\n")
 
-    with open("data/output_without_crud.txt", "w") as f:
-        # Loop over the data and write it to the file
-        """for i in range(1, len(elapsed_time) + 1):
-            if i != 1:
-                f.write(" ")
-            f.write("{}".format(i))
-        f.write("\n")"""
-        for i in A_inv:
-            for j in i:
-                f.write("{} ".format(j))
-            f.write("\n")
-    return {"message": "data_generated"}
+    return {
+        "total": count_injection + count_not_injection,
+        "count_injections": count_injection,
+        "count_not_injections": count_not_injection,
+        "true_positive": true_positive,
+        "false_positive": false_positive,
+        "true_negative": true_negative,
+        "false_negative": false_negative,
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+    }
 
 
 @app.get("/elapsed_time/select_query")
