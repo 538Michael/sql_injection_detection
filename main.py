@@ -14,10 +14,10 @@ regexes_to_test = [
     r"(\%27)|(\')|(--[^\r\n]*)|(;%00)",
     r"((\%3D)|(=))[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(;))",
     r"((\%27)|(\'))((\%6F)|o|(\%4F))((\%72)|r|(\%52))",
-    r"(\W)(and|or)\s*\d+\s*(=|\>\=|\<\=|\>\\<|\<|\>)",
+    r"(\W)(and|or)\s*",
     r"((\%27)|(\'))UNION",
-    r"([\s\(\)])(select|drop|insert|delete|update|create|alter)([\s\(\)])",
-    r"([\s\(\)])(exec|execute)([\s\(\)])",
+    r"([\s\(\)])*(select|drop|insert|delete|update|create|alter)([\s\(\)])*",
+    r"([\s\(\)])*(exec|execute)([\s\(\)])*",
     r"(\%20and|\+and|&&|\&\&)",
 ]
 
@@ -244,27 +244,44 @@ def generate_data():
         conn = get_connection()
         cur = conn.cursor()
 
-        with open("SQLiV3.csv") as csvfile:
-            reader = csv.reader(csvfile)
+        with open("SQLiV3.csv", "r") as csvfile:
+            reader = csv.reader(csvfile, delimiter="\n")
+            next(reader)
 
+            reader2 = []
             for row in reader:
+                row = row[0].split(",")
+                if len(row) >= 2:
+                    if len(row[0]) > 0:
+                        if row[len(row) - 3] == "0" or row[len(row) - 3] == "1":
+                            row[1] = row[len(row) - 3]
+                            reader2.append(row)
+                        elif row[len(row) - 2] == "0" or row[len(row) - 2] == "1":
+                            row[1] = row[len(row) - 2]
+                            reader2.append(row)
+                    else:
+                        del row[0]
+                        row[1] = row[len(row) - 2]
+                        reader2.append(row)
+                else:
+                    print(row)
+
+            for row in reader2:
                 count = count + 1
                 if count == 10000:
                     break
                 print(count)
 
-                regular_expressions = get_all_regular_expressions()
+                # regular_expressions = get_all_regular_expressions()
                 count2 = -1
-                for expression in regular_expressions:
+                for expression in regexes_to_test:
 
                     start_time = perf_counter()
                     get_all_regular_expressions()
 
                     count2 = count2 + 1
 
-                    regex = re.search(
-                        expression.get("description"), row[0], re.IGNORECASE
-                    )
+                    regex = re.search(expression, row[0], re.IGNORECASE)
 
                     end_time = perf_counter()
                     elapsed_time_ms = (end_time - start_time) * 1000
@@ -304,26 +321,43 @@ def generate_data():
         conn = get_connection()
         cur = conn.cursor()
 
-        with open("SQLiV3.csv") as csvfile:
-            reader = csv.reader(csvfile)
+        with open("SQLiV3.csv", "r") as csvfile:
+            reader = csv.reader(csvfile, delimiter="\n")
+            next(reader)
 
+            reader2 = []
             for row in reader:
+                row = row[0].split(",")
+                if len(row) >= 2:
+                    if len(row[0]) > 0:
+                        if row[len(row) - 3] == "0" or row[len(row) - 3] == "1":
+                            row[1] = row[len(row) - 3]
+                            reader2.append(row)
+                        elif row[len(row) - 2] == "0" or row[len(row) - 2] == "1":
+                            row[1] = row[len(row) - 2]
+                            reader2.append(row)
+                    else:
+                        del row[0]
+                        row[1] = row[len(row) - 2]
+                        reader2.append(row)
+                else:
+                    print(row)
+
+            for row in reader2:
                 count = count + 1
                 if count == 10000:
                     break
                 print(count)
 
-                regular_expressions = get_all_regular_expressions()
+                # regular_expressions = get_all_regular_expressions()
                 count2 = -1
-                for expression in regular_expressions:
+                for expression in regexes_to_test:
 
                     start_time = perf_counter()
 
                     count2 = count2 + 1
 
-                    regex = re.search(
-                        expression.get("description"), row[0], re.IGNORECASE
-                    )
+                    regex = re.search(expression, row[0], re.IGNORECASE)
 
                     end_time = perf_counter()
                     elapsed_time_ms = (end_time - start_time) * 1000

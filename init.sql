@@ -17,7 +17,7 @@ INSERT INTO "regular_expressions" ("id", "description", "captured_injections") V
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (6, '([\s\(\)])(select|drop|insert|delete|update|create|alter)([\s\(\)])', 0);
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (7, '([\s\(\)])(exec|execute)([\s\(\)])', 0);
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (8, '(\%20and|\+and|&&|\&\&)', 0);
-INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (9, '(\%27)|(\'')|(--[^\r\n]*)|(;%00)', 0);
+/*INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (9, '(\%27)|(\'')|(--[^\r\n]*)|(;%00)', 0);
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (10, '((\%3D)|(=))[^\n]*((\%27)|(\'')|(\-\-)|(\%3B)|(;))', 0);
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (11, '((\%27)|(\''))((\%6F)|o|(\%4F))((\%72)|r|(\%52))', 0);
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (12, '(\W)(and|or)\s*\d+\s*(=|\>\=|\<\=|\>\\<|\<|\>)', 0);
@@ -108,4 +108,4 @@ INSERT INTO "regular_expressions" ("id", "description", "captured_injections") V
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (97, '(\%27)|(\'')|(--[^\r\n]*)|(;%00)', 0);
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (98, '((\%3D)|(=))[^\n]*((\%27)|(\'')|(\-\-)|(\%3B)|(;))', 0);
 INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (99, '((\%27)|(\''))((\%6F)|o|(\%4F))((\%72)|r|(\%52))', 0);
-INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (100, '(\W)(and|or)\s*\d+\s*(=|\>\=|\<\=|\>\\<|\<|\>)', 0);
+INSERT INTO "regular_expressions" ("id", "description", "captured_injections") VALUES (100, '(\W)(and|or)\s*\d+\s*(=|\>\=|\<\=|\>\\<|\<|\>)', 0);*/
