@@ -433,6 +433,127 @@ def elapsed_time_select_query():
     return {"message": "data_generated"}
 
 
+def accuracy_function(tp, tn, fp, fn):
+
+    accuracy = (tp + tn) / (tp + tn + fp + fn)
+
+    return accuracy
+
+
+def precision_function(tp, fp):
+
+    precision = tp / (tp + fp)
+
+    return precision
+
+
+def recall_function(tp, fn):
+
+    recall = tp / (tp + fn)
+
+    return recall
+
+
+@app.get("/confusion_matrix")
+def confusion_matrix():
+    not_captured = []
+    true_positive = 0
+    false_positive = 0
+    true_negative = 0
+    false_negative = 0
+
+    count_injection = 0
+    count_not_injection = 0
+
+    list_of_false_negative = []
+
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+
+        regular_expressions = get_all_regular_expressions()
+
+        with open("SQLiV3.csv", "r") as csvfile:
+            reader = csv.reader(csvfile, delimiter="\n")
+            next(reader)
+
+            reader2 = []
+            for row in reader:
+                row = row[0].split(",")
+                if len(row) >= 2:
+                    if len(row[0]) > 0:
+                        if row[len(row) - 3] == "0" or row[len(row) - 3] == "1":
+                            row[1] = row[len(row) - 3]
+                            reader2.append(row)
+                        elif row[len(row) - 2] == "0" or row[len(row) - 2] == "1":
+                            row[1] = row[len(row) - 2]
+                            reader2.append(row)
+                    else:
+                        del row[0]
+                        row[1] = row[len(row) - 2]
+                        reader2.append(row)
+                else:
+                    print(row)
+
+            for row in reader2:
+                if row[1] == "1":
+                    count_injection += 1
+                else:
+                    count_not_injection += 1
+                is_injection = False
+                for expression in regexes_to_test:
+
+                    regex = re.search(expression, row[0], re.IGNORECASE)
+
+                    if regex:
+                        if row[1] == "1":
+                            true_positive += 1
+                        else:
+                            false_positive += 1
+                        is_injection = True
+                        break
+                if not is_injection:
+                    if row[1] == "0":
+                        true_negative += 1
+                    else:
+                        false_negative += 1
+                        list_of_false_negative.append((row[0], row[1], expression))
+
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    except IndexError as e:
+        raise HTTPException(status_code=500, detail=f"Index error: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+    accuracy = accuracy_function(
+        true_positive, true_negative, false_positive, false_negative
+    )
+    precision = precision_function(true_positive, false_positive)
+    recall = recall_function(true_positive, false_negative)
+
+    with open("data/not_captured.txt", "w") as f:
+        for i in not_captured:
+            f.write(f"{i}\n")
+    with open("data/list_of_list_of_false_negatives.txt", "w") as f:
+        for i in list_of_false_negative:
+            f.write(f"{i[2]}\t\t\t\t\t\t\t\t\t\t{i[1]}\t\t {i[0]}\n")
+
+    return {
+        "total": count_injection + count_not_injection,
+        "count_injections": count_injection,
+        "count_not_injections": count_not_injection,
+        "true_positive": true_positive,
+        "false_positive": false_positive,
+        "true_negative": true_negative,
+        "false_negative": false_negative,
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+    }
+
+
 @app.get("/sql_injection_detection")
 def sql_injection_detection(string: str):
 
