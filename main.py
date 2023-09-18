@@ -1,7 +1,8 @@
 import csv
 import re
 import threading
-from time import perf_counter, sleep
+from random import shuffle
+from time import perf_counter
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -303,64 +304,65 @@ def generate_data():
 
 
 def update_search_order():
-    while True:
-        sleep(0.01)  # Wait for 10 seconds
-        with lock:
-            # Sort the search_strings based on search counts in descending order.
-            regular_expressions.sort(
-                key=lambda x: search_counts.get(x.get("description"), 0), reverse=True
-            )
-            for expression in regular_expressions:
-                search_counts[expression.get("description")] = 0
-            # print("Thread is running...")
+    # Sort the search_strings based on search counts in descending order.
+    regular_expressions.sort(
+        key=lambda x: search_counts.get(x.get("description"), 0), reverse=True
+    )
+
+    for expression in regular_expressions:
+        search_counts[expression.get("description")] = 0
 
 
 @app.post("/generate_data/without_crud")
 def generate_data():
-    count = -1
+    global regular_expressions
+    count2 = 0
 
-    elapsed_time = []
+    number_of_runs = 10000
+
+    strings_to_test = []
+
+    with open("SQLiV3.csv") as csvfile:
+        reader = csv.reader(csvfile)
+        for row in reader:
+            strings_to_test.append(row[0])
+
+    elapsed_time = [[] for _ in range(number_of_runs)]
     try:
-        conn = get_connection()
-        cur = conn.cursor()
-
-        with open("SQLiV3.csv") as csvfile:
-            reader = csv.reader(csvfile)
-
+        for test_number in range(number_of_runs):
             regular_expressions = get_all_regular_expressions()
-
+            shuffle(strings_to_test)
+            count = -1
             for expression in regular_expressions:
                 search_counts[expression.get("description")] = 0
 
-            for row in reader:
+            for test in strings_to_test:
+                count2 = count2 + 1
                 count = count + 1
-                if count == 10000:
-                    break
                 # print(count)
 
-                count2 = 0
-                with lock:
-                    start_time = perf_counter()
-                    for expression in regular_expressions:
-                        regex = re.search(
-                            expression.get("description"), row[0], re.IGNORECASE
-                        )
+                if count % 100 == 0:
+                    update_search_order()
 
-                        # Increment the search count for the given search string.
-                        if regex:
-                            search_counts[expression.get("description")] += 1
+                start_time = perf_counter()
+                for expression in regular_expressions:
+                    regex = re.search(
+                        expression.get("description"), test, re.IGNORECASE
+                    )
 
-                            end_time = perf_counter()
-                            elapsed_time_ms = (end_time - start_time) * 1000
-                            elapsed_time.append(elapsed_time_ms)
-                            break
+                    # Increment the search count for the given search string.
+                    if regex:
+                        search_counts[expression.get("description")] += 1
+                        break
+                end_time = perf_counter()
+                elapsed_time_ms = (end_time - start_time) * 1000
+                elapsed_time[test_number].append(elapsed_time_ms)
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
-    finally:
-        cur.close()
-        conn.close()
 
     # elapsed_time = [sum(inner_list) / len(inner_list) for inner_list in elapsed_time]
+
+    elapsed_time = [sum(inner_list) / len(inner_list) for inner_list in elapsed_time]
 
     print(sum(elapsed_time) / len(elapsed_time))
 
