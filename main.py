@@ -1,6 +1,7 @@
 import csv
 import re
-from time import perf_counter
+import threading
+from time import perf_counter, sleep
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,13 +22,20 @@ regexes_to_test = [
     r"(\%20and|\+and|&&|\&\&)",
 ]
 
+regular_expressions = []
+
+# Initialize a dictionary to store search counts.
+search_counts = {}
+
+# Define a lock to ensure thread safety when updating search_counts and regexes_to_test.
+lock = threading.Lock()
+
 
 def check_if_database_exists():
-
     # Establish a connection to the PostgreSQL server
     try:
         connection = psycopg2.connect(
-            host="api-db",
+            host="localhost",
             user="postgres",
             password="postgres",
             database="sql_injection_detection",
@@ -256,7 +264,6 @@ def generate_data():
                 regular_expressions = get_all_regular_expressions()
                 count2 = -1
                 for expression in regular_expressions:
-
                     start_time = perf_counter()
                     get_all_regular_expressions()
 
@@ -295,11 +302,24 @@ def generate_data():
     return {"message": "data_generated"}
 
 
+def update_search_order():
+    while True:
+        sleep(0.01)  # Wait for 10 seconds
+        with lock:
+            # Sort the search_strings based on search counts in descending order.
+            regular_expressions.sort(
+                key=lambda x: search_counts.get(x.get("description"), 0), reverse=True
+            )
+            for expression in regular_expressions:
+                search_counts[expression.get("description")] = 0
+            # print("Thread is running...")
+
+
 @app.post("/generate_data/without_crud")
 def generate_data():
     count = -1
 
-    elapsed_time = [[] for _ in range(8)]
+    elapsed_time = []
     try:
         conn = get_connection()
         cur = conn.cursor()
@@ -307,27 +327,33 @@ def generate_data():
         with open("SQLiV3.csv") as csvfile:
             reader = csv.reader(csvfile)
 
+            regular_expressions = get_all_regular_expressions()
+
+            for expression in regular_expressions:
+                search_counts[expression.get("description")] = 0
+
             for row in reader:
                 count = count + 1
                 if count == 10000:
                     break
-                print(count)
+                # print(count)
 
-                regular_expressions = get_all_regular_expressions()
-                count2 = -1
-                for expression in regular_expressions:
-
+                count2 = 0
+                with lock:
                     start_time = perf_counter()
+                    for expression in regular_expressions:
+                        regex = re.search(
+                            expression.get("description"), row[0], re.IGNORECASE
+                        )
 
-                    count2 = count2 + 1
+                        # Increment the search count for the given search string.
+                        if regex:
+                            search_counts[expression.get("description")] += 1
 
-                    regex = re.search(
-                        expression.get("description"), row[0], re.IGNORECASE
-                    )
-
-                    end_time = perf_counter()
-                    elapsed_time_ms = (end_time - start_time) * 1000
-                    elapsed_time[count2].append(elapsed_time_ms)
+                            end_time = perf_counter()
+                            elapsed_time_ms = (end_time - start_time) * 1000
+                            elapsed_time.append(elapsed_time_ms)
+                            break
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
     finally:
@@ -335,6 +361,8 @@ def generate_data():
         conn.close()
 
     # elapsed_time = [sum(inner_list) / len(inner_list) for inner_list in elapsed_time]
+
+    print(sum(elapsed_time) / len(elapsed_time))
 
     A = np.array(elapsed_time)
     A_inv = np.transpose(A)
@@ -347,15 +375,13 @@ def generate_data():
             f.write("{}".format(i))
         f.write("\n")"""
         for i in A_inv:
-            for j in i:
-                f.write("{} ".format(j))
+            f.write("{} ".format(i))
             f.write("\n")
     return {"message": "data_generated"}
 
 
 @app.get("/sql_injection_detection")
 def sql_injection_detection(string: str):
-
     for expression in regexes_to_test:
         regex = re.search(expression, string, re.IGNORECASE)
 
@@ -366,4 +392,9 @@ def sql_injection_detection(string: str):
 
 
 if __name__ == "__main__":
+    update_thread = threading.Thread(target=update_search_order)
+    update_thread.daemon = (
+        True  # Set the thread as a daemon to exit when the main program exits.
+    )
+    # update_thread.start()
     uvicorn.run("main:app", host="0.0.0.0", port=8000, log_level="debug", reload=True)
