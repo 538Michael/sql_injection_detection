@@ -1,14 +1,17 @@
 import csv
 import re
 import threading
-from random import shuffle
+from random import seed, sample
 from time import perf_counter
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
 import psycopg2
 import uvicorn
 from fastapi import FastAPI, HTTPException
+
+seed(datetime.now().timestamp())
 
 app = FastAPI()
 
@@ -316,69 +319,77 @@ def update_search_order():
 @app.post("/generate_data/without_crud")
 def generate_data():
     global regular_expressions
-    count2 = 0
 
     number_of_runs = 10000
 
-    strings_to_test = []
+    all_strings_to_test = []
 
     with open("SQLiV3.csv") as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
-            strings_to_test.append(row[0])
+            all_strings_to_test.append(row[0])
 
-    elapsed_time = [[] for _ in range(number_of_runs)]
-    try:
-        for test_number in range(number_of_runs):
-            regular_expressions = get_all_regular_expressions()
-            shuffle(strings_to_test)
-            count = -1
-            for expression in regular_expressions:
-                search_counts[expression.get("description")] = 0
+    elapsed_time = [[] for _ in range(4)]
 
-            for test in strings_to_test:
-                count2 = count2 + 1
-                count = count + 1
-                # print(count)
+    count2 = 0
 
-                if count % 100 == 0:
-                    update_search_order()
+    for quantity in [1000, 3000, 6000, 9000]:
+        strings_to_test = []
 
-                start_time = perf_counter()
+        try:
+            for _ in range(number_of_runs):
+                elapsed_time2 = []
+                regular_expressions = get_all_regular_expressions()
+                strings_to_test = sample(all_strings_to_test, 10000)
+                count = -1
                 for expression in regular_expressions:
-                    regex = re.search(
-                        expression.get("description"), test, re.IGNORECASE
-                    )
+                    search_counts[expression.get("description")] = 0
 
-                    # Increment the search count for the given search string.
-                    if regex:
-                        search_counts[expression.get("description")] += 1
-                        break
-                end_time = perf_counter()
-                elapsed_time_ms = (end_time - start_time) * 1000
-                elapsed_time[test_number].append(elapsed_time_ms)
-    except psycopg2.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+                for test in strings_to_test:
+                    count = count + 1
 
-    # elapsed_time = [sum(inner_list) / len(inner_list) for inner_list in elapsed_time]
+                    if count % quantity == 0:
+                        update_search_order()
 
-    elapsed_time = [sum(inner_list) / len(inner_list) for inner_list in elapsed_time]
+                    start_time = perf_counter()
+                    for expression in regular_expressions:
+                        regex = re.search(
+                            expression.get("description"), test, re.IGNORECASE
+                        )
 
-    print(sum(elapsed_time) / len(elapsed_time))
+                        # Increment the search count for the given search string.
+                        if regex:
+                            search_counts[expression.get("description")] += 1
+                            break
+                    end_time = perf_counter()
+                    elapsed_time_ms = (end_time - start_time) * 1000
+                    elapsed_time2.append(elapsed_time_ms)
+
+                elapsed_time[count2].append(sum(elapsed_time2) / len(elapsed_time2))
+
+        except psycopg2.Error as e:
+            raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+        print("{:.30f}".format(sum(elapsed_time[count2]) / len(elapsed_time[count2])))
+
+        count2 = count2 + 1
 
     A = np.array(elapsed_time)
     A_inv = np.transpose(A)
 
-    with open("data/output_without_crud.txt", "w") as f:
+    with open(f"data/output_without_crud.txt", "w") as f:
         # Loop over the data and write it to the file
         """for i in range(1, len(elapsed_time) + 1):
             if i != 1:
                 f.write(" ")
             f.write("{}".format(i))
         f.write("\n")"""
+
         for i in A_inv:
-            f.write("{} ".format(i))
+            for j in i:
+                f.write("{:.30f} ".format(j))
             f.write("\n")
+
     return {"message": "data_generated"}
 
 
